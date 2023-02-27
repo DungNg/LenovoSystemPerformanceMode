@@ -4,12 +4,11 @@ echo "
 1. Battery Saving
 2. Intelligent Cooling
 3. Extreme Performance
-4. Get Current Mode"
+"
 
 BatterySaving=1;
 IntelligentCooling=2;
 ExtremePerformance=3;
-GetCurrentMode=4;
 
 STMD="";
 QTMD="";
