@@ -9,45 +9,107 @@ IntelligentCooling=2;
 ExtremePerformance=3;
 BatteryConservation=4;
 RapidCharge=5;
-
-STMD="";
-QTMD="";
-BTSG=""; #BatteryConservation flag
-FCGM=""; #RapidCharge flag
 low="0x0";
 high="0x1";
 
-echo '\_SB.PCI0.LPC0.EC0.STMD' > /proc/acpi/call
-STMD="$(tr -d '\0' <  /proc/acpi/call)";
+modprobe acpi_call
 
-echo '\_SB.PCI0.LPC0.EC0.QTMD' > /proc/acpi/call
-QTMD="$(tr -d '\0' <  /proc/acpi/call)";
+GetSTMD(){
+	echo '\_SB.PCI0.LPC0.EC0.STMD' > /proc/acpi/call
+	STMD="$(tr -d '\0' <  /proc/acpi/call)";
+	if [ "$STMD" == "$low" ]; then
+		return 0
+	elif [ "$STMD" == "$high" ]; then
+		return 1
+	fi
+}
 
-if [ "$STMD" == "$low" ] && [ "$QTMD" == "$low" ]; then
-	echo "Mode: Extreme Performance"
-elif [ "$STMD" == "$low" ] && [ "$QTMD" == "$high" ]; then
-	echo "Mode: Battery Saving"
-elif [ "$STMD" == "$high" ] && [ "$QTMD" == "$low" ]; then
-	echo "Mode: Intelligent Cooling"
-fi
+GetQTMD(){
+	echo '\_SB.PCI0.LPC0.EC0.QTMD' > /proc/acpi/call
+	QTMD="$(tr -d '\0' <  /proc/acpi/call)";
+	if [ "$QTMD" == "$low" ]; then
+		return 0
+	elif [ "$QTMD" == "$high" ]; then
+		return 1
+	fi
+}
 
-echo '\_SB.PCI0.LPC0.EC0.BTSG' > /proc/acpi/call
-BTSG="$(tr -d '\0' <  /proc/acpi/call)"; #Battery Conservation
+GetCurrentSystemPerformanceMode(){
+	GetSTMD
+	STMD=$?
 
-if [ "$BTSG" == "$low" ]; then
-	echo "Battery Conservation: Off"
-elif [ "$BTSG" == "$high" ]; then
-	echo "Battery Conservation: On"
-fi
+	GetQTMD
+	QTMD=$?
 
-echo '\_SB.PCI0.LPC0.EC0.FCGM' > /proc/acpi/call
-FCGM="$(tr -d '\0' <  /proc/acpi/call)"; #Rapid Charge
+	if [ "$STMD" -eq 0 ] && [ "$QTMD" -eq 0 ]; then
+		return $ExtremePerformance
+	elif [ "$STMD" -eq 0 ] && [ "$QTMD" -eq 1 ]; then
+		return $BatterySaving
+	elif [ "$STMD" -eq 1 ] && [ "$QTMD" -eq 0 ]; then
+		return $IntelligentCooling
+	fi
+}
 
-if [ "$FCGM" == "$low" ]; then
-	echo "Rapid Charge: Off"
-elif [ "$FCGM" == "$high" ]; then
-	echo "Rapid Charge: On"
-fi
+GetCurrentBatteryConservationStatus(){
+	echo '\_SB.PCI0.LPC0.EC0.BTSG' > /proc/acpi/call
+	currentStatus="$(tr -d '\0' <  /proc/acpi/call)"; #Battery Conservation
+
+	if [ "$currentStatus" == "$low" ]; then
+		return 0
+	elif [ "$currentStatus" == "$high" ]; then
+		return 1
+	fi
+}
+
+GetCurrentRapidChargeStatus(){
+	echo '\_SB.PCI0.LPC0.EC0.FCGM' > /proc/acpi/call
+	currentStatus="$(tr -d '\0' <  /proc/acpi/call)"; #Rapid Charge
+
+	if [ "$currentStatus" == "$low" ]; then
+		return 0
+	elif [ "$currentStatus" == "$high" ]; then
+		return 1
+	fi
+}
+
+PrintSystemPerformanceMode(){
+	if [ "$1" -eq $BatterySaving ]; then
+		echo "Mode: Battery Saving"
+	elif [ "$1" -eq $ExtremePerformance ]; then
+		echo "Mode: Extreme Performance"
+	elif [ "$1" -eq $IntelligentCooling ]; then
+		echo "Mode: Intelligent Cooling"
+	fi
+}
+
+PrintBatteryConservationStatus(){
+	if [ "$1" -eq 0 ]; then 
+		echo "Battery Conservation: Off"
+	elif [ "$1" -eq 1 ]; then
+		echo "Battery Conservation: On"
+	fi
+}
+
+PrintRapidChargeStatus(){
+	if [ "$1" -eq 0 ]; then 
+		echo "Rapid Charge: Off"
+	elif [ "$1" -eq 1 ]; then
+		echo "Rapid Charge: On"
+	fi
+}
+
+GetCurrentSystemPerformanceMode
+CurrentSPM=$?
+PrintSystemPerformanceMode "$CurrentSPM"
+
+GetCurrentBatteryConservationStatus
+CurrentBC=$?
+PrintBatteryConservationStatus "$CurrentBC"
+
+GetCurrentRapidChargeStatus
+CurrentRC=$?
+PrintRapidChargeStatus "$CurrentRC"
+
 echo "----------------------------"
 echo "
 1. Battery Saving
@@ -61,29 +123,35 @@ read -p 'Your selection: ' selection
 
 echo "-------------------------------------------------------------"
 
-modprobe acpi_call
-
 TurnBatteryConservationOn(){
+	echo 'Turn On Battery Conservation'
 	echo '\_SB.PCI0.LPC0.EC0.VPC0.SBMC 0x03' > /proc/acpi/call
 }
 
 TurnBatteryConservationOff(){
+	echo 'Turn Off Battery Conservation'
 	echo '\_SB.PCI0.LPC0.EC0.VPC0.SBMC 0x05' > /proc/acpi/call
 }
 
 TurnRapidChargeOn(){
+	echo 'Turn On Rapid Charge'
 	echo '\_SB.PCI0.LPC0.EC0.VPC0.SBMC 0x07' > /proc/acpi/call
 }
 
 TurnRapidChargeOff(){
+	echo 'Turn Off Rapid Charge'
 	echo '\_SB.PCI0.LPC0.EC0.VPC0.SBMC 0x08' > /proc/acpi/call
 }
 
 ToggleBatteryConservation(){
-	if [ "$BTSG" == "$low" ]; then
-		if [ "$FCGM" == "$low" ]; then
+	GetCurrentBatteryConservationStatus
+	currentBCStatus=$?
+	if [ "$currentBCStatus" -eq 0 ]; then
+		GetCurrentRapidChargeStatus
+		currentRCStatus=$?
+		if [ "$currentRCStatus" -eq 0 ]; then
   			TurnBatteryConservationOn
-		elif [ "$FCGM" == "$high" ]; then
+		elif [ "$currentRCStatus" -eq 1 ]; then
 			read -p "Rapid Charge(RC) is On, turn Battery Conservation On will turn RC Off, do you want to continue? (Y/n)" answer
 			case $answer in 
 				Y | y | "\n")
@@ -101,16 +169,20 @@ ToggleBatteryConservation(){
 
 		fi
 		
-	elif [ "$BTSG" == "$high" ]; then
+	elif [ "$currentBCStatus" -eq 1 ]; then
 		TurnBatteryConservationOff
 	fi
 }
 
 ToggleRapidCharge(){
-	if [ "$FCGM" == "$low" ]; then
-		if [ "$BTSG" == "$low" ]; then
+	GetCurrentRapidChargeStatus
+	currentRCStatus=$?
+	if [ "$currentRCStatus" -eq 0 ]; then
+		GetCurrentBatteryConservationStatus
+		currentBCStatus=$?
+		if [ "$currentBCStatus" -eq 0 ]; then
 			TurnRapidChargeOn
-		elif [ "$BTSG" == "$high" ]; then
+		elif [ "$currentBCStatus" -eq 1 ]; then
 			read -p "Battery Conservation(BC) is On, turn Rapid Charge On will turn BC Off, do you want to continue? (Y/n)" answer
 			case $answer in 
 				Y | y)
@@ -127,7 +199,7 @@ ToggleRapidCharge(){
 			esac
 		fi
 		
-	elif [ "$FCGM" == "$high" ]; then
+	elif [ "$currentRCStatus" -eq 1 ]; then
 		TurnRapidChargeOff
 	fi
 }
@@ -135,14 +207,17 @@ ToggleRapidCharge(){
 case $selection in
 
   $BatterySaving)
+	echo 'Turn on Battery Saving Mode'
 	echo '\_SB.PCI0.LPC0.EC0.VPC0.DYTC 0x0013B001' > /proc/acpi/call
     ;;
 
   $IntelligentCooling)
+  	echo 'Turn on Intelligent Cooling Mode'
 	echo '\_SB.PCI0.LPC0.EC0.VPC0.DYTC 0x000FB001' > /proc/acpi/call
     ;;
 
   $ExtremePerformance)
+  	echo 'Turn on Extreme Performance Mode'
 	echo '\_SB.PCI0.LPC0.EC0.VPC0.DYTC 0x0012B001' > /proc/acpi/call
     ;;
   $BatteryConservation)
@@ -152,6 +227,7 @@ case $selection in
 	ToggleRapidCharge
   ;;
   *)
-    echo "Your selection not exist."
+    echo "!!!WARNING: Your selection not exist.
+	"
     ;;
 esac
